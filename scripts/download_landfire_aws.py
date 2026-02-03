@@ -1,16 +1,14 @@
 """
 Download LANDFIRE Existing Vegetation Type (EVT) data.
 
-LANDFIRE data is hosted on AWS S3 as part of the USFS data distribution.
-This script downloads EVT data for the Pacific Northwest region.
-
-Note: CONUS-wide data is very large (~2-3 GB). This script attempts
-to download the full dataset which you can then clip to the study area.
+LANDFIRE now uses a dynamic download portal - direct URLs no longer work.
+This script provides instructions and can download from alternative sources.
 """
 
 import os
 import sys
 import zipfile
+import webbrowser
 from pathlib import Path
 import requests
 from tqdm import tqdm
@@ -20,40 +18,34 @@ PROJECT_ROOT = Path(__file__).parent.parent
 VEG_DIR = PROJECT_ROOT / "data" / "raw" / "vegetation"
 VEG_DIR.mkdir(parents=True, exist_ok=True)
 
-# LANDFIRE data URLs
-# LF 2022 (also known as LF2022/LF 2.3.0) EVT data
-LANDFIRE_URLS = {
-    # Primary: AWS hosted LANDFIRE data
-    "aws_lf2022": "https://s3-us-west-2.amazonaws.com/landfire/LF2022/LF2022_EVT_220_CONUS/LF2022_EVT_220_CONUS.zip",
-    # Alternative: LANDFIRE direct (may require session)
-    "landfire_direct": "https://landfire.gov/bulk/downloadfile.php?TYPE=landfire&FNAME=LF2022_EVT_220_CONUS.zip",
-    # Older version as fallback
-    "aws_lf2020": "https://s3-us-west-2.amazonaws.com/landfire/LF2020/LF2020_EVT_200_CONUS/LF2020_EVT_200_CONUS.zip",
+# Study area bounds for clipping request
+BOUNDS = {
+    "north": 49.0,
+    "south": 45.5,
+    "east": -120.5,
+    "west": -122.5,
 }
 
 
 def download_file(url: str, dest_path: Path, chunk_size: int = 8192) -> bool:
     """Download a file with progress bar."""
     try:
-        print(f"  Connecting to: {url[:80]}...")
+        print(f"  Connecting...")
         response = requests.get(url, stream=True, timeout=60, allow_redirects=True)
-
-        if response.status_code == 404:
-            print(f"  404 Not Found")
-            return False
-
-        if response.status_code == 403:
-            print(f"  403 Forbidden - may require authentication")
-            return False
-
         response.raise_for_status()
 
+        # Check if we got actual data or an error page
+        content_type = response.headers.get('content-type', '')
+        if 'text/html' in content_type:
+            print(f"  Received HTML instead of data (likely error page)")
+            return False
+
         total_size = int(response.headers.get('content-length', 0))
+        if total_size < 1000000:  # Less than 1MB is suspicious for this data
+            print(f"  File too small ({total_size} bytes) - likely not the actual data")
+            return False
 
-        if total_size == 0:
-            print("  Warning: Unknown file size")
-
-        size_mb = total_size / (1024 * 1024) if total_size > 0 else 0
+        size_mb = total_size / (1024 * 1024)
         print(f"  File size: {size_mb:.1f} MB")
 
         with open(dest_path, 'wb') as f:
@@ -65,43 +57,98 @@ def download_file(url: str, dest_path: Path, chunk_size: int = 8192) -> bool:
 
         return True
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"  Error: {e}")
         return False
 
 
-def extract_zip(zip_path: Path, extract_dir: Path) -> bool:
-    """Extract a zip file."""
+def print_manual_instructions():
+    """Print manual download instructions."""
+    print("""
+============================================================
+MANUAL DOWNLOAD INSTRUCTIONS
+============================================================
+
+LANDFIRE now requires using their interactive portal. Follow these steps:
+
+METHOD 1: LANDFIRE Viewer (Recommended - smaller download)
+----------------------------------------------------------
+1. Open: https://landfire.gov/viewer/
+
+2. Navigate to Washington State:
+   - Use the search box or zoom to the Cascade Range
+   - Or enter coordinates: 47.5°N, -121.5°W
+
+3. Click "Get Data" button (top right)
+
+4. Draw a bounding box over the Cascades:
+   - North: 49.0°
+   - South: 45.5°
+   - East: -120.5°
+   - West: -122.5°
+
+5. Select data product:
+   - Version: "LF 2022" (or latest available)
+   - Product: "Existing Vegetation Type (EVT)"
+
+6. Click "Download" and wait for the job to process
+
+7. Extract the downloaded zip to:
+   """ + str(VEG_DIR) + """
+
+
+METHOD 2: USGS EarthExplorer (Alternative)
+----------------------------------------------------------
+1. Open: https://earthexplorer.usgs.gov/
+
+2. Set search criteria:
+   - Click "Use Map" and draw a box over Washington Cascades
+   - Or enter coordinates manually
+
+3. Select datasets:
+   - Data Sets → Vegetation Indices → LANDFIRE
+   - Check "EVT - Existing Vegetation Type"
+
+4. Download results
+
+
+METHOD 3: Direct LFPS Portal
+----------------------------------------------------------
+1. Open: https://lfps.usgs.gov/helpdocs/productstable.html
+
+2. Find "Existing Vegetation Type" in the table
+
+3. Click the download link for LF 2022
+
+
+After downloading, ensure the .tif file is in:
+""" + str(VEG_DIR) + """
+
+Then run: python scripts/03_preprocess_vegetation.py
+""")
+
+
+def open_landfire_viewer():
+    """Open LANDFIRE viewer in browser."""
+    url = "https://landfire.gov/viewer/"
+    print(f"\nOpening LANDFIRE Viewer: {url}")
     try:
-        print(f"  Extracting {zip_path.name}...")
-        with zipfile.ZipFile(zip_path, 'r') as zf:
-            # List contents
-            file_list = zf.namelist()
-            print(f"  Archive contains {len(file_list)} files")
-
-            # Extract
-            zf.extractall(extract_dir)
-
-        print(f"  Extracted to: {extract_dir}")
+        webbrowser.open(url)
         return True
-
-    except zipfile.BadZipFile:
-        print(f"  Error: Bad zip file")
-        return False
-    except Exception as e:
-        print(f"  Error extracting: {e}")
+    except:
+        print(f"Could not open browser. Please navigate to: {url}")
         return False
 
 
 def main():
-    """Download LANDFIRE EVT data."""
+    """Main function."""
     print("=" * 60)
     print("LANDFIRE EVT Data Download")
     print("=" * 60)
     print(f"\nOutput directory: {VEG_DIR}")
 
     # Check if already downloaded
-    existing_tifs = list(VEG_DIR.glob("*EVT*.tif"))
+    existing_tifs = list(VEG_DIR.glob("*EVT*.tif")) + list(VEG_DIR.glob("*evt*.tif"))
     if existing_tifs:
         print(f"\nEVT data already exists:")
         for f in existing_tifs:
@@ -110,95 +157,38 @@ def main():
         print("\nSkipping download. Delete existing files to re-download.")
         return
 
-    print("\n" + "-" * 60)
-    print("Attempting download from available sources...")
-    print("-" * 60)
-    print("\nNote: LANDFIRE CONUS data is large (2-3 GB).")
-    print("This may take 10-30 minutes depending on connection.\n")
+    print("""
+LANDFIRE has migrated to a new download system that requires
+interactive selection through their web portal.
 
-    downloaded = False
-    zip_path = None
-
-    for source_name, url in LANDFIRE_URLS.items():
-        print(f"\n[{source_name.upper()}]")
-
-        # Determine filename from URL
-        filename = url.split("/")[-1].split("?")[0]
-        if not filename.endswith(".zip"):
-            filename = f"LF_EVT_{source_name}.zip"
-
-        zip_path = VEG_DIR / filename
-
-        if download_file(url, zip_path):
-            downloaded = True
-            print(f"  Success!")
-            break
-        else:
-            # Clean up partial download
-            if zip_path.exists():
-                zip_path.unlink()
-            print(f"  Failed, trying next source...")
-
-    if not downloaded:
-        print("\n" + "=" * 60)
-        print("AUTOMATED DOWNLOAD FAILED")
-        print("=" * 60)
-        print("""
-All automated download attempts failed. Please download manually:
-
-1. Go to: https://landfire.gov/viewer/
-2. Click "Get Data" → "LF 2022"
-3. Select "Existing Vegetation Type (EVT)"
-4. For Area: Select "CONUS" or draw a box over Washington State
-5. Download and extract to:
-   """ + str(VEG_DIR) + """
-
-Alternative: Use USGS EarthExplorer
-1. Go to: https://earthexplorer.usgs.gov/
-2. Set coordinates for Washington (45.5-49°N, 120.5-122.5°W)
-3. Data Sets → Vegetation → LANDFIRE → EVT
-4. Download and extract to the vegetation folder
+Automated download is no longer available for this dataset.
 """)
-        return
 
-    # Extract the zip file
-    print("\n" + "-" * 60)
-    print("Extracting data...")
-    print("-" * 60)
+    # Ask user what to do
+    print("Options:")
+    print("  [1] Open LANDFIRE Viewer in browser (recommended)")
+    print("  [2] Show manual download instructions")
+    print("  [3] Exit")
 
-    if zip_path and zip_path.exists():
-        if extract_zip(zip_path, VEG_DIR):
-            # Find the extracted TIF
-            tif_files = list(VEG_DIR.glob("**/*EVT*.tif"))
-            if tif_files:
-                print(f"\nExtracted TIF files:")
-                for f in tif_files:
-                    size_mb = f.stat().st_size / (1024 * 1024)
-                    print(f"  - {f.name} ({size_mb:.1f} MB)")
+    try:
+        choice = input("\nEnter choice (1/2/3): ").strip()
+    except (KeyboardInterrupt, EOFError):
+        choice = "3"
 
-                    # Move to vegetation dir if in subdirectory
-                    if f.parent != VEG_DIR:
-                        dest = VEG_DIR / f.name
-                        f.rename(dest)
-                        print(f"    Moved to: {dest}")
+    if choice == "1":
+        open_landfire_viewer()
+        print("\n" + "-" * 60)
+        print("After downloading from the LANDFIRE Viewer:")
+        print("-" * 60)
+        print(f"1. Extract the zip file")
+        print(f"2. Copy the .tif file to: {VEG_DIR}")
+        print(f"3. Run: python scripts/03_preprocess_vegetation.py")
 
-            # Optionally remove zip to save space
-            print(f"\nKeeping zip file: {zip_path.name}")
-            print("Delete manually if you want to save disk space.")
+    elif choice == "2":
+        print_manual_instructions()
 
-    # Summary
-    print("\n" + "=" * 60)
-    print("DOWNLOAD COMPLETE")
-    print("=" * 60)
-
-    final_tifs = list(VEG_DIR.glob("*EVT*.tif"))
-    if final_tifs:
-        for f in final_tifs:
-            size_mb = f.stat().st_size / (1024 * 1024)
-            print(f"  {f.name}: {size_mb:.1f} MB")
-        print("\nNext step: Run python scripts/03_preprocess_vegetation.py")
     else:
-        print("  No TIF files found. Check extraction manually.")
+        print("\nExiting. Run this script again when ready to download.")
 
 
 if __name__ == "__main__":
