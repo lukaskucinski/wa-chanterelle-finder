@@ -1,5 +1,9 @@
 # Washington Cascadia Chanterelle Heat Map
 
+## Project Guidelines
+
+- **No AI attribution**: Never include co-authorship credits, signatures, or attribution to Claude, Anthropic, or any AI assistant in commits, code comments, or documentation.
+
 ## Project Overview
 
 This project creates a scientific heat map identifying optimal chanterelle mushroom (Cantharellus formosus) habitat in Washington State's Cascade Range using multi-criteria geospatial analysis.
