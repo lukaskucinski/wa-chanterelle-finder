@@ -3,7 +3,7 @@ Script 04: Preprocess climate data.
 
 This script processes PRISM precipitation data:
 1. Annual precipitation normals
-2. Fall precipitation (Sep-Nov) for chanterelle season
+2. Fall precipitation (Sep-Dec) for chanterelle season
 
 Output:
 - Annual precipitation (inches)
@@ -42,38 +42,26 @@ def find_prism_files(climate_dir: Path) -> dict:
     """
     Find PRISM precipitation files in the climate directory.
 
-    Returns dict with keys: 'annual', 'sep', 'oct', 'nov'
+    Returns dict with keys: 'annual', 'sep', 'oct', 'nov', 'dec'
     """
     files = {}
 
-    # Search patterns for PRISM files
-    # PRISM files typically named: PRISM_ppt_30yr_normal_800mM4_annual_bil.bil
-    # or PRISM_ppt_30yr_normal_800mM4_09_bil.bil (for September)
+    # Search patterns for PRISM files (recursive to handle subdirectory structure)
+    # Files may be in subdirectories like: prism_ppt_us_30s_2020_avg_30y/prism_ppt_us_30s_2020_avg_30y.tif
 
-    for f in climate_dir.glob("*ppt*"):
+    for f in climate_dir.glob("**/*ppt*.tif"):
         name = f.name.lower()
 
-        if 'annual' in name:
+        if '2020_avg' in name or 'annual' in name:
             files['annual'] = f
-        elif '_09_' in name or '_09.' in name:
+        elif '202009' in name or '_09_' in name:
             files['sep'] = f
-        elif '_10_' in name or '_10.' in name:
+        elif '202010' in name or '_10_' in name:
             files['oct'] = f
-        elif '_11_' in name or '_11.' in name:
+        elif '202011' in name or '_11_' in name:
             files['nov'] = f
-
-    # Also check for .tif files
-    for f in climate_dir.glob("*.tif"):
-        name = f.name.lower()
-
-        if 'annual' in name and 'annual' not in files:
-            files['annual'] = f
-        elif 'sep' in name and 'sep' not in files:
-            files['sep'] = f
-        elif 'oct' in name and 'oct' not in files:
-            files['oct'] = f
-        elif 'nov' in name and 'nov' not in files:
-            files['nov'] = f
+        elif '202012' in name or '_12_' in name:
+            files['dec'] = f
 
     return files
 
@@ -167,15 +155,19 @@ def process_climate():
         write_raster(annual_precip_path, placeholder.astype(np.float32), meta['transform'], TARGET_CRS)
         print(f"Placeholder annual precipitation saved to: {annual_precip_path}")
 
-    # Process Fall Precipitation (Sep-Nov)
+    # Process Fall Precipitation (Sep-Dec)
     print("\n[2/2] Processing Fall Precipitation (Chanterelle Season)...")
 
+    # Require Sep-Nov, optionally include Dec if available
     if all(m in prism_files for m in ['sep', 'oct', 'nov']):
-        print("Processing monthly files...")
+        fall_months = ['sep', 'oct', 'nov']
+        if 'dec' in prism_files:
+            fall_months.append('dec')
+        print(f"Processing monthly files ({', '.join(fall_months)})...")
 
         fall_total = None
 
-        for month in ['sep', 'oct', 'nov']:
+        for month in fall_months:
             month_input = prism_files[month]
             print(f"  Processing {month}: {month_input.name}")
 
@@ -216,7 +208,8 @@ def process_climate():
         print(f"Fall precipitation saved to: {fall_precip_path}")
 
         stats = get_raster_stats(fall_precip_path)
-        print(f"\nFall Precipitation (Sep-Nov) Statistics:")
+        month_range = "Sep-Dec" if 'dec' in fall_months else "Sep-Nov"
+        print(f"\nFall Precipitation ({month_range}) Statistics:")
         print(f"  Min: {stats['min']:.1f} inches")
         print(f"  Max: {stats['max']:.1f} inches")
         print(f"  Mean: {stats['mean']:.1f} inches")

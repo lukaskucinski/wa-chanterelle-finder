@@ -39,7 +39,11 @@ from scripts.utils.raster_utils import (
 # Directories
 RAW_VEG_DIR = PROJECT_ROOT / "data" / "raw" / "vegetation"
 RAW_CANOPY_DIR = PROJECT_ROOT / "data" / "raw" / "canopy"
+RAW_HDIST_DIR = PROJECT_ROOT / "data" / "raw" / "vegetation" / "landfire_hdist"
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+
+# Current year for calculating time since disturbance
+CURRENT_YEAR = 2024
 
 # LANDFIRE EVT codes for Pacific Northwest forests
 # Reference: https://landfire.gov/evt.php
@@ -215,6 +219,11 @@ def process_vegetation():
                 canopy_aligned_path,
                 resampling=Resampling.bilinear
             )
+
+            # Mask invalid NLCD values (254, 255 are fill/nodata)
+            canopy_data, canopy_meta = read_raster(canopy_aligned_path)
+            canopy_data = np.where(canopy_data > 100, NODATA, canopy_data)
+            write_raster(canopy_aligned_path, canopy_data, canopy_meta['transform'], TARGET_CRS)
             print(f"Canopy cover saved to: {canopy_aligned_path}")
 
             # Print statistics
@@ -238,25 +247,93 @@ def process_vegetation():
     print("\n[3/3] Processing Forest Age (optional)...")
     forest_age_path = PROCESSED_DIR / "forest_age.tif"
 
-    # Look for LANDFIRE VDIST (Vegetation Disturbance) data
+    # Look for disturbance data in order of preference:
+    # 1. Combined Hansen + LANDFIRE (most complete)
+    # 2. LANDFIRE HDist (Historical Disturbance Year)
+    # 3. Our processed "last disturbance year" from annual data
+    # 4. VDIST files
+
+    # Check for combined disturbance data first (Hansen + LANDFIRE)
+    combined_dist = PROCESSED_DIR / "combined_disturbance_year.tif"
+    hansen_dist = PROCESSED_DIR / "hansen_loss_year.tif"
+
+    hdist_files = []
+    if combined_dist.exists():
+        hdist_files = [combined_dist]
+        print(f"  Using combined Hansen + LANDFIRE disturbance data")
+    elif hansen_dist.exists():
+        hdist_files = [hansen_dist]
+        print(f"  Using Hansen forest loss data")
+    else:
+        # Fall back to LANDFIRE data
+        hdist_files = list(RAW_HDIST_DIR.glob("*HDist*.tif")) + list(RAW_HDIST_DIR.glob("*hdist*.tif"))
+        hdist_files += list(RAW_HDIST_DIR.glob("*HDIST*.tif"))
+        # Also check for our processed "last disturbance year" file
+        hdist_files += list(RAW_HDIST_DIR.glob("*last_disturbance*.tif"))
+        hdist_files += list(RAW_HDIST_DIR.glob("*disturbance_year*.tif"))
+
     vdist_files = list(RAW_VEG_DIR.glob("*VDIST*.tif")) + list(RAW_VEG_DIR.glob("*vdist*.tif"))
 
-    if vdist_files:
-        vdist_input = vdist_files[0]
-        print(f"Input: {vdist_input}")
+    if hdist_files and not forest_age_path.exists():
+        # HDist contains year of last disturbance - calculate time since
+        hdist_input = hdist_files[0]
+        print(f"Input (HDist): {hdist_input}")
 
-        if not forest_age_path.exists():
-            # VDIST contains time since disturbance - can estimate age
-            print("Processing vegetation disturbance data...")
+        print("Processing historical disturbance data...")
+
+        # First align to template
+        hdist_aligned = PROCESSED_DIR / "hdist_aligned.tif"
+        if not hdist_aligned.exists():
             align_raster_to_template(
-                vdist_input,
+                hdist_input,
                 template_path,
-                forest_age_path,
+                hdist_aligned,
                 resampling=Resampling.nearest
             )
-            print(f"Forest age saved to: {forest_age_path}")
-    else:
-        print("No VDIST data found. Creating estimated forest age layer...")
+
+        # Read and calculate time since disturbance
+        hdist_data, meta = read_raster(hdist_aligned)
+
+        # HDist values are years (e.g., 2015, 2020) or 0/NoData for no disturbance
+        # Calculate age = Current Year - Disturbance Year
+        # For areas with no recorded disturbance, assume old-growth (100+ years)
+        valid_years = (hdist_data >= 1900) & (hdist_data <= CURRENT_YEAR)
+
+        forest_age = np.full_like(hdist_data, NODATA, dtype=np.float32)
+        forest_age[valid_years] = CURRENT_YEAR - hdist_data[valid_years]
+
+        # No disturbance recorded = assume old-growth (use 100 years)
+        no_disturbance = (hdist_data == 0) | (hdist_data == -9999) | np.isnan(hdist_data)
+        template_data, _ = read_raster(template_path)
+        valid_mask = ~np.isnan(template_data) & (template_data != NODATA)
+        forest_age[no_disturbance & valid_mask] = 100
+
+        write_raster(forest_age_path, forest_age, meta['transform'], TARGET_CRS)
+        print(f"Forest age (from HDist) saved to: {forest_age_path}")
+
+        # Statistics
+        valid_age = forest_age[(forest_age != NODATA) & (forest_age >= 0)]
+        if len(valid_age) > 0:
+            print(f"\nForest Age Statistics:")
+            print(f"  Min: {valid_age.min():.0f} years")
+            print(f"  Max: {valid_age.max():.0f} years")
+            print(f"  Mean: {valid_age.mean():.0f} years")
+
+    elif vdist_files and not forest_age_path.exists():
+        vdist_input = vdist_files[0]
+        print(f"Input (VDist): {vdist_input}")
+
+        print("Processing vegetation disturbance data...")
+        align_raster_to_template(
+            vdist_input,
+            template_path,
+            forest_age_path,
+            resampling=Resampling.nearest
+        )
+        print(f"Forest age saved to: {forest_age_path}")
+
+    elif not forest_age_path.exists():
+        print("No VDIST/HDist data found. Creating estimated forest age layer...")
 
         # Create placeholder based on forest type
         # Assume optimal conifer = second-growth (60 years), other = mixed ages

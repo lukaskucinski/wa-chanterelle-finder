@@ -88,6 +88,7 @@ def merge_dem_tiles(input_dir: Path, output_path: Path) -> Path:
             "width": mosaic.shape[2],
             "transform": out_transform,
             "compress": "lzw",
+            "BIGTIFF": "YES",
         })
 
         # Write merged raster

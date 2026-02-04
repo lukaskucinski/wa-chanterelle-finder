@@ -77,7 +77,7 @@ def extract_osm_data(osm_dir: Path) -> Path:
 
     for zip_path in zip_files:
         # Check if already extracted
-        shp_files = list(osm_dir.glob("*roads*.shp"))
+        shp_files = list(osm_dir.glob("**/*roads*.shp"))
         if shp_files:
             return shp_files[0]
 
@@ -86,7 +86,7 @@ def extract_osm_data(osm_dir: Path) -> Path:
             zf.extractall(osm_dir)
 
     # Find extracted shapefile
-    shp_files = list(osm_dir.glob("*roads*.shp"))
+    shp_files = list(osm_dir.glob("**/*roads*.shp"))
     if shp_files:
         return shp_files[0]
 
@@ -269,9 +269,9 @@ def process_roads():
 
         # Rasterize: 1 = National Forest, 0 = other
         ownership = rasterize_vector(forests_gdf, template_path, fill_value=0)
-        ownership = np.where(valid_mask, ownership, 0).astype(np.uint8)
+        ownership = np.where(valid_mask, ownership, 255).astype(np.uint8)
 
-        write_raster(ownership_path, ownership, meta['transform'], TARGET_CRS, nodata=0, dtype='uint8')
+        write_raster(ownership_path, ownership, meta['transform'], TARGET_CRS, nodata=255, dtype='uint8')
         print(f"Land ownership saved to: {ownership_path}")
 
         nf_pct = np.sum(ownership == 1) / np.sum(valid_mask) * 100
@@ -282,8 +282,8 @@ def process_roads():
         print("Creating placeholder (assuming all National Forest)...")
 
         # Placeholder: all National Forest (conservative for foraging access)
-        ownership = np.where(valid_mask, 1, 0).astype(np.uint8)
-        write_raster(ownership_path, ownership, meta['transform'], TARGET_CRS, nodata=0, dtype='uint8')
+        ownership = np.where(valid_mask, 1, 255).astype(np.uint8)
+        write_raster(ownership_path, ownership, meta['transform'], TARGET_CRS, nodata=255, dtype='uint8')
 
     # =========================================================================
     # Process Streams (water proximity)
@@ -292,6 +292,8 @@ def process_roads():
 
     stream_files = list(RAW_HYDROLOGY_DIR.glob("*Flowline*.shp")) + list(RAW_HYDROLOGY_DIR.glob("*flowline*.shp"))
     stream_files += list(RAW_HYDROLOGY_DIR.glob("*stream*.shp"))
+    # Also check for OSM waterways in roads directory
+    stream_files += list(RAW_ROADS_DIR.glob("**/*waterways*.shp"))
 
     if stream_files and not stream_distance_path.exists():
         print(f"Loading streams: {stream_files[0]}")
