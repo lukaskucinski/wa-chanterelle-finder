@@ -1,164 +1,58 @@
 {
   "version": 8,
-  "name": "Chanterelle Habitat Map - Washington Cascades",
+  "name": "Chanterelle Habitat Map",
   "metadata": {
-    "description": "Scientific heat map identifying optimal Pacific Golden Chanterelle (Cantharellus formosus) habitat in Washington State's Cascade Range",
-    "author": "Chanterelle Finder Project",
-    "data_sources": [
-      "USGS 3DEP (elevation)",
-      "LANDFIRE (vegetation)",
-      "NLCD (canopy cover)",
-      "PRISM (precipitation)",
-      "SSURGO (soil)",
-      "OpenStreetMap (roads)",
-      "USFS (forest boundaries)"
-    ]
+    "description": "Washington Cascadia chanterelle habitat suitability map"
   },
-  "center": [-121.5, 47.5],
-  "zoom": 7,
-  "bearing": 0,
-  "pitch": 0,
   "sources": {
-    "mapbox-terrain": {
-      "type": "raster-dem",
-      "url": "mapbox://mapbox.mapbox-terrain-dem-v1",
-      "tileSize": 512,
-      "maxzoom": 14
-    },
-    "habitat-suitability": {
+    "habitat": {
       "type": "raster",
       "tiles": [
-        "https://YOUR_TILESET_URL/habitat/{z}/{x}/{y}.png"
+        "YOUR_MAPBOX_TILESET_URL/{z}/{x}/{y}.png"
       ],
       "tileSize": 256,
-      "bounds": [-122.5, 45.5, -120.5, 49.0],
-      "minzoom": 5,
-      "maxzoom": 14,
-      "attribution": "Chanterelle Habitat Analysis"
+      "attribution": "Chanterelle Finder Project"
     },
-    "access-quality": {
+    "access": {
       "type": "raster",
       "tiles": [
-        "https://YOUR_TILESET_URL/access/{z}/{x}/{y}.png"
+        "YOUR_MAPBOX_ACCESS_TILESET_URL/{z}/{x}/{y}.png"
       ],
-      "tileSize": 256,
-      "bounds": [-122.5, 45.5, -120.5, 49.0],
-      "minzoom": 5,
-      "maxzoom": 14
+      "tileSize": 256
     }
   },
   "sprite": "mapbox://sprites/mapbox/dark-v11",
   "glyphs": "mapbox://fonts/mapbox/{fontstack}/{range}.pbf",
-  "terrain": {
-    "source": "mapbox-terrain",
-    "exaggeration": 1.5
-  },
   "layers": [
     {
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "#0d1117"
+        "background-color": "#1a1a2e"
       }
     },
     {
-      "id": "hillshade",
-      "type": "hillshade",
-      "source": "mapbox-terrain",
-      "paint": {
-        "hillshade-illumination-direction": 315,
-        "hillshade-shadow-color": "#000000",
-        "hillshade-highlight-color": "#2d3748",
-        "hillshade-accent-color": "#1a202c",
-        "hillshade-exaggeration": 0.3
-      }
-    },
-    {
-      "id": "habitat-suitability-layer",
+      "id": "habitat-suitability",
       "type": "raster",
-      "source": "habitat-suitability",
+      "source": "habitat",
       "paint": {
-        "raster-opacity": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          5, 0.7,
-          10, 0.85,
-          14, 0.9
-        ],
-        "raster-resampling": "linear",
-        "raster-fade-duration": 300
+        "raster-opacity": 0.8,
+        "raster-resampling": "linear"
       },
       "layout": {
         "visibility": "visible"
-      },
-      "metadata": {
-        "mapbox:group": "habitat",
-        "description": "Chanterelle habitat suitability score (0-1)"
       }
     },
     {
-      "id": "access-quality-layer",
+      "id": "access-quality",
       "type": "raster",
-      "source": "access-quality",
+      "source": "access",
       "paint": {
         "raster-opacity": 0.6,
-        "raster-resampling": "linear",
-        "raster-fade-duration": 300
+        "raster-resampling": "linear"
       },
       "layout": {
         "visibility": "none"
-      },
-      "metadata": {
-        "mapbox:group": "access",
-        "description": "Access quality score based on road proximity and land ownership"
-      }
-    },
-    {
-      "id": "road-label",
-      "type": "symbol",
-      "source": "composite",
-      "source-layer": "road",
-      "minzoom": 12,
-      "filter": [
-        "all",
-        ["has", "name"],
-        ["in", "class", "primary", "secondary", "tertiary"]
-      ],
-      "layout": {
-        "text-field": ["get", "name"],
-        "text-font": ["DIN Pro Regular", "Arial Unicode MS Regular"],
-        "text-size": 11,
-        "symbol-placement": "line"
-      },
-      "paint": {
-        "text-color": "#a0aec0",
-        "text-halo-color": "#1a202c",
-        "text-halo-width": 1
-      }
-    },
-    {
-      "id": "place-label",
-      "type": "symbol",
-      "source": "composite",
-      "source-layer": "place_label",
-      "minzoom": 8,
-      "filter": ["in", "class", "city", "town", "village"],
-      "layout": {
-        "text-field": ["get", "name"],
-        "text-font": ["DIN Pro Medium", "Arial Unicode MS Regular"],
-        "text-size": [
-          "interpolate",
-          ["linear"],
-          ["zoom"],
-          8, 12,
-          14, 16
-        ]
-      },
-      "paint": {
-        "text-color": "#e2e8f0",
-        "text-halo-color": "#0d1117",
-        "text-halo-width": 1.5
       }
     }
   ]

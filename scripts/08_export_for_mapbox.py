@@ -65,21 +65,38 @@ ACCESS_COLOR_RAMP = [
 
 def convert_to_cog(input_path: Path, output_path: Path):
     """
-    Convert a raster to Cloud-Optimized GeoTIFF.
+    Convert a raster to Cloud-Optimized GeoTIFF (8-bit for Mapbox).
+
+    Mapbox requires 8-bit TIFFs. This converts 0-1 float scores to 0-255 uint8.
 
     Args:
-        input_path: Input GeoTIFF path
-        output_path: Output COG path
+        input_path: Input GeoTIFF path (float32, 0-1 range)
+        output_path: Output COG path (uint8, 0-255 range)
     """
     print(f"Converting to COG: {input_path.name}...")
 
     with rasterio.open(input_path) as src:
         data = src.read(1)
-        profile = src.profile.copy()
+        nodata = src.nodata
 
-        # Update profile for COG
+        # Create valid mask
+        if nodata is not None:
+            valid_mask = ~np.isnan(data) & (data != nodata)
+        else:
+            valid_mask = ~np.isnan(data)
+
+        # Convert float (0-1) to uint8 (0-255)
+        # Use 1-255 for valid data, 0 for nodata
+        data_uint8 = np.zeros(data.shape, dtype=np.uint8)
+        data_uint8[valid_mask] = np.clip(data[valid_mask] * 254 + 1, 1, 255).astype(np.uint8)
+        # 0 = nodata, 1 = score 0.0, 255 = score 1.0
+
+        # Update profile for 8-bit COG
+        profile = src.profile.copy()
         profile.update({
             'driver': 'GTiff',
+            'dtype': 'uint8',
+            'nodata': 0,
             'compress': 'deflate',
             'predictor': 2,
             'tiled': True,
@@ -89,14 +106,18 @@ def convert_to_cog(input_path: Path, output_path: Path):
 
         # Write COG with overviews
         with rasterio.open(output_path, 'w', **profile) as dst:
-            dst.write(data, 1)
+            dst.write(data_uint8, 1)
 
-            # Build overviews
+            # Build overviews for faster rendering at different zoom levels
             overview_levels = [2, 4, 8, 16, 32]
             dst.build_overviews(overview_levels, Resampling.average)
             dst.update_tags(ns='rio_overview', resampling='average')
 
+    # Report size reduction
+    input_size = input_path.stat().st_size / (1024 * 1024)
+    output_size = output_path.stat().st_size / (1024 * 1024)
     print(f"  Created: {output_path}")
+    print(f"  Size: {input_size:.1f} MB -> {output_size:.1f} MB (8-bit)")
 
 
 def normalize_for_visualization(data: np.ndarray, valid_mask: np.ndarray) -> np.ndarray:
@@ -355,6 +376,11 @@ Alternative: Use Mapbox Studio
 - Create new tileset by uploading COG files
 - Create new style using Dark template
 - Add raster layers for habitat and access
+
+Note: COGs are 8-bit (Mapbox requirement)
+- Value 0 = nodata (transparent)
+- Value 1-255 = suitability score (1=0%, 255=100%)
+- To convert back: score = (pixel_value - 1) / 254
 
 COG files ready for upload:
 """)

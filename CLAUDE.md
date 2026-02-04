@@ -130,3 +130,42 @@ python scripts/process_annual_disturbance.py
 1. **Habitat Suitability** - Pure ecological scoring (0-1)
 2. **Access Quality** - Road proximity and quality (0-1)
 3. **Reference Layers** - National Forest boundaries, roads by type
+
+## Mapbox Deployment
+
+### Setup (One Time)
+```bash
+# Install dependencies
+pip install boto3 python-dotenv
+
+# Create credentials file
+copy .env.example .env
+# Edit .env with your MAPBOX_ACCESS_TOKEN and MAPBOX_USERNAME
+```
+
+### Upload Workflow
+```bash
+# Export 8-bit COGs (Mapbox requirement)
+python scripts/08_export_for_mapbox.py
+
+# Upload to Mapbox
+python scripts/upload_to_mapbox.py           # Upload all
+python scripts/upload_to_mapbox.py habitat   # Upload habitat only
+python scripts/upload_to_mapbox.py access    # Upload access only
+```
+
+### COG Format
+Mapbox requires 8-bit TIFFs. The export script converts float scores (0-1) to uint8:
+- Value 0 = nodata (transparent)
+- Value 1-255 = suitability score (1=0%, 255=100%)
+- To convert back: `score = (pixel_value - 1) / 254`
+
+### Mapbox Studio
+1. Create new style from "Dark" template
+2. Add raster layers from uploaded tilesets
+3. Configure opacity and blending
+4. Publish and share
+
+### Tileset IDs
+- `{username}.chanterelle-habitat` - Habitat suitability
+- `{username}.chanterelle-access` - Access quality
