@@ -54,6 +54,20 @@ mapbox/             # Mapbox style configuration
 | Streams | OpenStreetMap | Vector | Waterways from Geofabrik |
 | Forest Disturbance | Hansen GFC + LANDFIRE | 30m | Combined dataset (see below) |
 
+### Data Source URLs
+
+| Dataset | URL |
+|---------|-----|
+| USGS 3DEP | `s3://prd-tnm/StagedProducts/Elevation/13/TIFF/current/` |
+| LANDFIRE EVT | https://landfire.gov/viewer/ (manual download) |
+| LANDFIRE Disturbance | https://landfire.gov/version_download.php |
+| NLCD Tree Canopy | https://www.mrlc.gov/data |
+| PRISM Climate | https://prism.oregonstate.edu/normals/ |
+| POLARIS Soil | http://hydrology.cee.duke.edu/POLARIS/PROPERTIES/v1.0/ph/mean/0_5/ |
+| gSSURGO | https://nrcs.app.box.com/v/soils (WA state geodatabase) |
+| Hansen GFC | https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/ |
+| OSM Roads | https://download.geofabrik.de/north-america/us/washington.html |
+
 ### Forest Age / Disturbance Data
 
 Forest age is derived from two complementary disturbance datasets:
@@ -169,3 +183,63 @@ Mapbox requires 8-bit TIFFs. The export script converts float scores (0-1) to ui
 ### Tileset IDs
 - `{username}.chanterelle-habitat` - Habitat suitability
 - `{username}.chanterelle-access` - Access quality
+
+## Data Processing Notes
+
+### Raw Data Cleanup
+
+After processing, the following raw data was deleted to save disk space (~31 GB):
+
+| Deleted | Size | Reason |
+|---------|------|--------|
+| `data/raw/dem/*.tif` | 8.3 GB | 20 DEM tiles merged into processed output |
+| `data/raw/vegetation/landfire_hdist/extracted/` | 9.6 GB | Extracted annual TIFs no longer needed |
+| `data/raw/forest_loss/*treecover2000*` | 708 MB | Optional Hansen data not used |
+| `data/processed/dem_merged.tif` | 8.8 GB | Intermediate file |
+| `data/processed/dem_clipped.tif` | 3.4 GB | Intermediate file |
+
+**Retained raw data** (needed for potential reprocessing):
+- `vegetation/landfire_hdist/*.zip` - Original LANDFIRE downloads
+- `canopy/*.tif` - NLCD source (3.5 GB)
+- `soil/gSSURGO_WA.gdb/` - Soil geodatabase (2.3 GB)
+- `climate/` - PRISM normals (293 MB)
+
+See `data/raw/dem/README.md` for DEM re-download instructions.
+
+### Processing Workflow
+
+1. **DEM Processing** (`02_preprocess_dem.py`)
+   - Downloads 20 tiles from AWS S3 covering 45°N-49°N, 120°W-123°W
+   - Merges tiles using BIGTIFF for files >4GB
+   - Reprojects to UTM 10N (EPSG:32610)
+   - Derives slope and aspect
+
+2. **Vegetation Processing** (`03_preprocess_vegetation.py`)
+   - Classifies LANDFIRE EVT codes into chanterelle habitat quality
+   - Processes NLCD canopy cover (masks nodata values >100)
+   - Calculates forest age from combined disturbance data
+
+3. **Climate Processing** (`04_preprocess_climate.py`)
+   - Reprojects 800m PRISM data to 30m grid
+   - Calculates fall precipitation (Sep+Oct+Nov+Dec)
+
+4. **Soil Processing** (`05_preprocess_soil.py`)
+   - Merges 32 POLARIS pH tiles for Washington
+   - Extracts drainage class from gSSURGO geodatabase
+   - Rasterizes MUPOLYGON layer for drainage
+
+5. **Roads/Access Processing** (`06_preprocess_roads.py`)
+   - Calculates distance to nearest road
+   - Classifies road types (paved/unpaved/trail)
+   - Identifies National Forest boundaries
+   - Calculates distance to streams
+
+6. **Suitability Calculation** (`07_calculate_suitability.py`)
+   - Applies scoring functions to each factor
+   - Combines using weighted overlay
+   - Outputs habitat suitability and access quality scores
+
+7. **Export for Mapbox** (`08_export_for_mapbox.py`)
+   - Converts float32 scores to 8-bit (Mapbox requirement)
+   - Creates Cloud-Optimized GeoTIFFs with overviews
+   - Generates preview PNGs
